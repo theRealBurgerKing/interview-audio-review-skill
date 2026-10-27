@@ -1,75 +1,54 @@
 # interview-audio-review
 
-先向用户确认每段录音的面试名称，再将录音转写为带时间戳的文字稿，并生成简洁的逐题复盘报告。每段录音的两个交付文件放在 `interview-reviews/` 下同一个独立子文件夹。默认覆盖所有非代码题、非候选人反问的问题；回答有明显问题时才提供推荐回答。
+从面试录音生成原始文字稿和离线 HTML 逐题复盘。Qwen3-ASR 转写、安装脚本、分析规范、HTML 渲染器及模板均包含在本目录中，不依赖其他转写 skill。
 
-## 功能
+## 环境与转写
 
-- 复用同项目的 `transcribe-audio` skill 完成本地转写；
-- 默认以 `small` 模型处理中文面试音频，音质差或术语密集时可改为 `medium`；
-- 根据时间戳区分提问与回答，并标注自动转写中无法确认的专有名词；
-- 覆盖所有面试官提出的实质性问题，默认跳过现场编程题和候选人反问；
-- 回答好的题保留“问题—实际回答—评价”，回答有明显问题的题再加“推荐回答”；
-- 输出简短的整体评价，不默认生成练习清单或待核实清单；
-- 每段录音只交付 `文字稿.txt` 与 `面试复盘.md`，保存在其专属子文件夹中。
+本地转写使用 Apple Silicon Mac、Python 3.10+ 和 Qwen3-ASR 0.6B MLX 4-bit。首次安装依赖、下载模型需要联网，转写在本地进行，无语音 API 费用。HTML 本身无需联网。
 
-## 依赖
+```bash
+bash scripts/setup.sh
+~/.cache/interview-audio-review/venv/bin/python scripts/transcribe.py "面试录音.m4a" \
+  --language zh --timestamps --output "输出目录/文字稿"
+```
 
-本 skill 依赖相邻目录的 [`transcribe-audio`](../transcribe-audio/README.md) skill。首次使用前，先根据其说明安装 `faster-whisper` 和下载模型。
+独立环境与可选模型缓存位于 `~/.cache/interview-audio-review/`。可通过 `PYTHON_BIN`、`VENV_DIR`、`QWEN_ASR_MODEL` 覆盖配置。音视频由 PyAV 解码，不要求单独安装 ffmpeg。具体参数和局部复核见 [references/transcription.md](references/transcription.md)。
 
-## 工作流
+单独转文字时，省略 `--timestamps` 即得到带标点、无时间戳的段落 TXT；生成复盘时保留此参数，让渲染器建立原文锚点。时间来自音频切块，不是逐字对齐；不自动区分说话人。
+
+## 复盘与交付
+
+在 Codex 中提供录音并调用本技能，由代理按 [SKILL.md](SKILL.md) 阅读原文、复核歧义和完成逐题分析。名称沿用用户指定名称或既有文件名偏好。分析 JSON 遵循 [references/analysis-schema.md](references/analysis-schema.md)，然后执行：
+
+```bash
+~/.cache/interview-audio-review/venv/bin/python scripts/render_review.py \
+  --transcript "输出目录/文字稿.txt" \
+  --analysis "工作目录/分析.json" \
+  --output "输出目录/面试复盘.html"
+```
+
+转写和渲染脚本负责本地处理；问答提取与评价由调用本技能的 Codex 完成，不是脚本自动调用付费分析 API。
+
+每段录音交付 `interview-reviews/YYYY-MM-DD-面试名称/文字稿.txt` 和 `面试复盘.html`。同名目录追加序号，不覆盖历史结果。分析 JSON、复核片段与检查截图留在工作目录。
+
+HTML 右侧完整原文显示为自然段落，默认隐藏时间；同题问答使用相同色系高亮。点击原文可查看左侧问题、回答和分析，导航及证据按钮可反向定位。支持搜索、折叠、文字稿下载和手机布局。
+
+默认略去现场代码实现与候选人反问的分析，相关原文仍保留。说话人和术语不清时标待核，不静默改写原话，不编造成果或推断录用结果。
+
+## 包含的文件
 
 ```text
-面试音频
-   ↓
-确认面试名称（用户已明确提供时不重复询问）
-   ↓
-transcribe-audio：生成带时间戳文字稿
-   ↓
-识别提问、回答与转写不确定项
-   ↓
-逐题分析；仅对回答有明显问题的题生成推荐回答
-   ↓
-interview-reviews/{日期}-{面试名称}/：保存两个交付文件
+interview-audio-review/
+├── SKILL.md
+├── README.md
+├── scripts/
+│   ├── setup.sh
+│   ├── transcribe.py
+│   └── render_review.py
+├── references/
+│   ├── transcription.md
+│   └── analysis-schema.md
+└── assets/review.html
 ```
 
-## 报告命名
-
-如果用户尚未指定这段录音的面试名称，先询问，例如“这段录音的面试名称是什么？例如：FreshFace 一面。”不要仅凭音频或文件名替用户确定。报告标题为 `{面试名称}｜面试复盘`。
-
-每段录音使用一个 `YYYY-MM-DD-{面试名称}` 子文件夹。名称中的空格等字符整理为 `-`；例如用户确认“FreshFace 一面”，在2026年09月18日生成时：
-
-```text
-interview-reviews/
-└── 2026-09-18-FreshFace-一面/
-    ├── 文字稿.txt
-    └── 面试复盘.md
-```
-
-若同名文件夹已存在，给子文件夹追加 `-2`、`-3` 等序号，不覆盖历史复盘。文件名固定为 `面试复盘.md`。报告内使用同目录的文字稿链接。
-
-## 报告结构
-
-```md
-# {报告标题}
-
-## 整体评价
-
-## 逐题复盘
-
-### 1. {问题主题}
-
-**问题**
-
-**实际回答**
-
-**评价**
-
-<!-- 仅回答有明显问题时添加 -->
-**推荐回答**
-```
-
-## 使用边界
-
-- 复盘基于音频中的实际表达；推荐回答必须与原回答明确区分。
-- 自动转写的模型、框架和人名可能有误，无法从上下文确认时应标记为“转写待核”。
-- 不修改或删除原始音频。
+移动或分发时保留整个目录。运行环境和模型不打入 skill 包，可由内置安装脚本及模型加载器在新机器上重新建立。
