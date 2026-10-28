@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """Validate evidence/turn links and render a self-contained interview review."""
 import argparse
+from datetime import datetime, timezone
+import hashlib
 import html
 import json
 import re
+import time
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -91,11 +94,26 @@ def prepare(raw, data):
                 if not runs or seg['role'] != runs[-1][-1]['role'] or int(seg['id'][1:]) != int(runs[-1][-1]['id'][1:]) + 1:
                     runs.append([])
                 runs[-1].append(seg)
-            valid = [run for run in runs if needle and needle in normalized(''.join(s['text'] for s in run))
-                     and any(s in near for s in run)]
-            if not valid:
+            anchor = None
+            for run in runs:
+                lengths = [len(normalized(s['text'])) for s in run]
+                combined = ''.join(normalized(s['text']) for s in run)
+                offset = combined.find(needle) if needle else -1
+                while offset >= 0:
+                    position, covered = 0, []
+                    for seg, length in zip(run, lengths):
+                        if position < offset + len(needle) and position + length > offset:
+                            covered.append(seg)
+                        position += length
+                    if covered and any(seg in near for seg in covered):
+                        anchor = covered[0]['id']
+                        break
+                    offset = combined.find(needle, offset + 1)
+                if anchor:
+                    break
+            if not anchor:
                 raise ValueError(f'{q["id"]}: quote not found in associated speaker turn: {ev["quote"]}')
-            ev['segment_id'] = near[0]['id']
+            ev['segment_id'] = anchor
         for source in q.get('sources', []):
             if urlparse(source['url']).scheme not in ('http', 'https'):
                 raise ValueError('Only http(s) evidence source URLs are allowed')
@@ -160,12 +178,29 @@ def main():
     parser.add_argument('--transcript', type=Path, required=True)
     parser.add_argument('--analysis', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--stats-output', type=Path, help='Save validation/render timing and counts')
+    parser.add_argument('--preparation', type=Path, help='Verify prepared input hash and record analysis elapsed wall time')
     args = parser.parse_args()
+    started = time.perf_counter()
     raw = args.transcript.read_text(encoding='utf-8')
     data = json.loads(args.analysis.read_text(encoding='utf-8'))
+    preparation = None
+    if args.preparation:
+        preparation = json.loads(args.preparation.read_text(encoding='utf-8'))
+        if hashlib.sha256(raw.encode('utf-8')).hexdigest() != preparation['transcript_sha256']:
+            parser.error('Transcript changed since preparation; review the new input before rendering')
     result = render(raw, data)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(result, encoding='utf-8')
+    if args.stats_output:
+        stats = {'validation_render_seconds': round(time.perf_counter() - started, 4),
+                 'question_count': len(data['questions']), 'segment_count': data['segment_count'],
+                 'evidence_count': sum(len(q.get('evidence', [])) for q in data['questions'])}
+        if preparation:
+            stats['analysis_elapsed_wall_seconds_including_pauses'] = round(
+                (datetime.now(timezone.utc) - datetime.fromisoformat(preparation['analysis_started_at'])).total_seconds(), 2)
+        args.stats_output.parent.mkdir(parents=True, exist_ok=True)
+        args.stats_output.write_text(json.dumps(stats, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     print(f'Rendered {len(data["questions"])} questions / {data["segment_count"]} original segments: {args.output}')
 
 

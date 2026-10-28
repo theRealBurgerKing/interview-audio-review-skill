@@ -88,6 +88,7 @@ def main():
     parser.add_argument("--output", type=Path, help="输出前缀，不含扩展名；默认与音频同目录同名")
     parser.add_argument("--timestamps", action="store_true", help="显式改为带音频块起止时间的 TXT（非逐字对齐）")
     parser.add_argument("--metadata", action="store_true", help="额外保存 .json，包含原始块文字和粗粒度定位信息")
+    parser.add_argument("--metrics-output", type=Path, help="将各阶段实测耗时保存到指定 JSON（建议放工作目录）")
     parser.add_argument("--hotword", action="append", default=[], help="可重复传入术语提示，不包含推荐答案")
     parser.add_argument("--chunk-seconds", type=float, default=25.0, help="每块最长秒数，默认 25，范围 5–30")
     parser.add_argument("--max-tokens", type=int, default=1024, help="每个音频块的 token 上限")
@@ -110,6 +111,7 @@ def main():
 
     started = time.perf_counter()
     audio = decode_audio(args.audio)
+    decoded = time.perf_counter()
     original_duration = len(audio) / SAMPLE_RATE
     first = int(args.start * SAMPLE_RATE)
     last = len(audio) if args.duration is None else min(len(audio), first + int(args.duration * SAMPLE_RATE))
@@ -122,6 +124,7 @@ def main():
         language = None
     print(f"加载 Qwen3-ASR：{chosen_model}", flush=True)
     model = load(chosen_model)
+    loaded = time.perf_counter()
     segments = []
     for i, (start, end, samples) in enumerate(audio_chunks(audio, args.chunk_seconds), 1):
         # Skip digital silence only; do not pretend this energy check is speaker detection.
@@ -138,6 +141,7 @@ def main():
                          "text": text, "language": detected_language})
         print(f"已处理 {fmt_clock(args.start + end / SAMPLE_RATE)}，第 {i} 块", flush=True)
 
+    recognized = time.perf_counter()
     base = args.output or args.audio.with_suffix("")
     base.parent.mkdir(parents=True, exist_ok=True)
     txt_path = Path(str(base) + ".txt")
@@ -155,7 +159,15 @@ def main():
                     "paragraphs": "punctuation_and_length_not_semantic_or_speaker_segmentation",
                     "hotwords": args.hotword, "segments": segments}
         Path(str(base) + ".json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    print(f"已写入 {txt_path}，耗时 {time.perf_counter() - started:.1f} 秒", flush=True)
+    finished = time.perf_counter()
+    if args.metrics_output:
+        metrics = {"decode_seconds": round(decoded - started, 4), "load_seconds": round(loaded - decoded, 4),
+                   "recognize_seconds": round(recognized - loaded, 4), "write_seconds": round(finished - recognized, 4),
+                   "total_seconds": round(finished - started, 4), "audio_seconds": len(audio) / SAMPLE_RATE,
+                   "segment_count": len(segments)}
+        args.metrics_output.parent.mkdir(parents=True, exist_ok=True)
+        args.metrics_output.write_text(json.dumps(metrics, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    print(f"已写入 {txt_path}，耗时 {finished - started:.1f} 秒", flush=True)
 
 
 if __name__ == "__main__":
