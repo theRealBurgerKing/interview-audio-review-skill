@@ -1,63 +1,113 @@
-# interview-audio-review
+# 面试录音复盘
 
-从面试录音生成原始转写稿和离线 HTML 逐题复盘。Qwen3-ASR 转写、安装脚本、分析规范、HTML 渲染器及模板均包含在本目录中，不依赖其他转写 skill。
+`interview-audio-review` 是一个 Codex Skill：把面试录音整理成可对照原文阅读的逐题复盘，帮助你看清当时怎么回答、哪里没有说清，以及下次可以怎样表达。
 
-## 环境与转写
+内置 Qwen3-ASR 本地转写、分析规范和 HTML 模板，无需另装转写 skill。
 
-本地转写使用 Apple Silicon Mac、Python 3.10+ 和 Qwen3-ASR 0.6B MLX 4-bit。首次安装依赖、下载模型需要联网，转写在本地进行，无语音 API 费用。HTML 本身无需联网。
+## 你会得到什么
 
-```bash
-bash scripts/setup.sh
-~/.cache/interview-audio-review/venv/bin/python scripts/transcribe.py "面试录音.m4a" \
-  --language zh --timestamps --output "输出目录/转写稿"
-```
+每次复盘交付三个文件：
 
-独立环境与可选模型缓存位于 `~/.cache/interview-audio-review/`。可通过 `PYTHON_BIN`、`VENV_DIR`、`QWEN_ASR_MODEL` 覆盖配置。音视频由 PyAV 解码，不要求单独安装 ffmpeg。具体参数和局部复核见 [references/transcription.md](references/transcription.md)。
+- **面试复盘报告.html**：整体评价、逐题分析，以及可交互定位的完整原文。
+- **转写稿.txt**：带音频片段时间的原始转写，单独保存，便于复用。
+- **原始录音**：保留原文件名与扩展名的副本，方便回听。
 
-单独转文字时，省略 `--timestamps` 即得到带标点、无时间戳的段落 TXT；生成复盘时保留此参数，让渲染器建立原文锚点。时间来自音频切块，不是逐字对齐；不自动区分说话人。
-
-## 复盘与交付
-
-在 Codex 中提供录音并调用本技能，由代理按 [SKILL.md](SKILL.md) 阅读原文、复核歧义和完成逐题分析。名称沿用用户指定名称或既有文件名偏好。分析 JSON 遵循 [references/analysis-schema.md](references/analysis-schema.md)，然后执行：
-
-```bash
-~/.cache/interview-audio-review/venv/bin/python scripts/render_review.py \
-  --transcript "输出目录/转写稿.txt" \
-  --analysis "工作目录/分析.json" \
-  --output "输出目录/面试复盘报告.html"
-```
-
-转写和渲染脚本负责本地处理；问答提取与评价由调用本技能的 Codex 完成，不是脚本自动调用付费分析 API。
-
-默认报告保存到 `~/Documents/面试录音分析/YYYY-MM-DD-面试名称/`，包含原始录音（例如 `小米四面.m4a`）、`转写稿.txt` 和 `面试复盘报告.html`。原始录音按原文件名与扩展名复制，保留源文件和原始内容。用户显式指定输出目录时优先使用指定目录。同名目录追加序号，不覆盖历史结果。分析 JSON、复核片段与检查截图留在工作目录。
-
-HTML 右侧完整原文显示为自然段落，默认隐藏时间；同题问答使用相同色系高亮。点击原文可查看左侧问题、回答和分析，最左侧纵向目录显示面试名称和各题标题，当前项显示为蓝色；点击目录可反向定位。窄屏可展开目录。每题使用“问题”“我的回复”“评价”和始终展开的推荐答法，不显示证据区块或片段计数。支持搜索和手机布局。转写稿作为独立文件交付。
-
-默认略去现场代码实现与候选人反问的分析，相关原文仍保留。说话人和术语不清时标待核，不静默改写原话，不编造成果或推断录用结果。
-
-## 固定处理与验收流程
-
-新增 `scripts/prepare_analysis.py` 生成带编号阅读稿和分析草稿；由 Codex 直接填写分析 JSON，再由渲染器统一验证原文与证据。浏览器使用 `scripts/check_review.cjs`，默认抽查典型题与通用功能，必要时 `--full`。
-
-默认一次全量转写，仅对影响结论的歧义局部重转；不再为每份录音临时编写分析生成或验收脚本。各阶段保存实测耗时，分析耗时以包含等待的墙钟时间记录，不冒充模型纯计算时间。具体命令见 [references/fast-workflow.md](references/fast-workflow.md)。
-
-## 包含的文件
+默认保存位置：
 
 ```text
-interview-audio-review/
-├── SKILL.md
-├── README.md
-├── scripts/
-│   ├── setup.sh
-│   ├── transcribe.py
-│   ├── prepare_analysis.py
-│   ├── render_review.py
-│   └── check_review.cjs
-├── references/
-│   ├── transcription.md
-│   ├── analysis-schema.md
-│   └── fast-workflow.md
-└── assets/review.html
+~/Documents/面试录音分析/
+└── YYYY-MM-DD-面试名称/
+    ├── 原始录音.m4a
+    ├── 转写稿.txt
+    └── 面试复盘报告.html
 ```
 
-移动或分发时保留整个目录。运行环境和模型不打入 skill 包，可由内置安装脚本及模型加载器在新机器上重新建立。
+目录日期使用生成当天的用户本地日期。同名目录自动追加序号；也可以指定其他输出目录。分析 JSON、计时记录和检查截图保存在工作目录中。
+
+## 安装
+
+本地转写需要 **Apple Silicon Mac 和 Python 3.10+**。首次安装依赖、下载模型需要联网，之后可复用本地环境与模型缓存。
+
+将仓库安装到 Codex 的 skills 目录：
+
+```bash
+git clone https://github.com/theRealBurgerKing/interview-audio-review-skill.git \
+  "${CODEX_HOME:-$HOME/.codex}/skills/interview-audio-review"
+
+cd "${CODEX_HOME:-$HOME/.codex}/skills/interview-audio-review"
+bash scripts/setup.sh
+```
+
+默认使用 Qwen3-ASR 0.6B MLX 4-bit。安装脚本会创建独立 Python 环境 `~/.cache/interview-audio-review/venv`；音视频通过 PyAV 解码，无需另装 ffmpeg 命令。
+
+若需指定 Python、环境位置或模型，见[转写说明](references/transcription.md)。浏览器自动验收另需 Node.js、Playwright 和可用浏览器，配置见[固定工作流](references/fast-workflow.md)。
+
+## 在 Codex 中使用
+
+提供录音路径，调用 skill，并说明面试名称：
+
+```text
+使用 $interview-audio-review 复盘 ~/Downloads/面试录音.m4a。
+面试名称为“某公司-一面”，重点看项目经历的回答。
+```
+
+可以追加分析范围、详略或输出目录。例如：
+
+```text
+沿用录音文件名作为面试名称，报告保存到我指定的目录。
+```
+
+已有转写稿时，可以要求复用：
+
+```text
+基于之前的转写稿，用当前模板重新生成 HTML。
+```
+
+用于原文定位的转写稿需要包含兼容的时间锚点；仅有无时间戳的文字时，需要原录音补齐定位信息。只调整页面排版时，无需重新转写录音。
+
+## 报告怎么阅读
+
+报告使用白色整体背景，桌面端分为三个区域：
+
+- **左侧目录**：上下居中显示面试名称和题目标题，当前项显示为蓝色。点击面试名称返回整体评价，点击题目进入对应复盘。目录过长时可滚动。
+- **中间复盘**：每题包含“问题”“我的回复”“评价”“推荐回答要点”和“推荐回答”。推荐内容始终展开，便于连续阅读。
+- **右侧原文**：保留完整转写，按发言与问答边界排成自然段落；同题内容使用相同色系标记。点击高亮段落可切换对应分析，点击目录可定位原文。
+
+整体评价只呈现评价内容，题目导航统一放在左侧。原文支持搜索和时间显示切换，默认隐藏时间。目录、复盘和原文独立滚动，支持键盘操作；手机上可展开目录，分析与原文上下排列。
+
+HTML 自包含，生成后可直接用浏览器打开并离线阅读，交互功能需要启用 JavaScript。录音与转写稿作为独立文件保存。
+
+## 只需要转写文字
+
+在 skill 目录中运行：
+
+```bash
+~/.cache/interview-audio-review/venv/bin/python scripts/transcribe.py "录音.m4a" \
+  --language zh --output "输出目录/转写稿"
+```
+
+默认生成带标点、无时间戳的段落文字。用于后续复盘时加上 `--timestamps`。支持 m4a、mp3、wav、mp4、flac 等音视频格式；局部复核、模型选择和计时参数见[转写说明](references/transcription.md)。
+
+## 工作原理与边界
+
+录音先由本机 Qwen3-ASR 转写，再由调用 skill 的 Codex 阅读原文、整理问答、给出评价和推荐表达，最后由脚本校验关联并生成 HTML。语音转写在本机完成，无语音 API 费用；问答分析由你使用的 Codex 环境完成，其运行与计费方式取决于该环境。
+
+复盘遵循以下原则：
+
+- **原话与建议分开。** “我的回复”忠实概括实际回答；推荐内容不能伪装成已经说过的话，也不编造个人职责、数字或成果。
+- **依据可确认内容评价。** 听不清的术语、数字或说话人标注为待核，不把识别歧义当成确定错误，也不推断录用结果。
+- **保留完整原文。** 默认不分析现场代码实现题和候选人反问，但这些内容仍保留在右侧。代码概念题、反问阶段面试官提出的实质问题仍纳入；范围可按要求调整。
+- **时间用于片段定位。** 时间锚点来自音频切块，不是逐字对齐；自动转写也不等于可靠的说话人分离。
+
+默认只做一次全量转写，只有歧义影响回答归属或评价时才局部复核。渲染器检查字段、题序、范围重叠和证据关联；浏览器脚本检查目录、原文保留、搜索、键盘与窄屏布局。自动检查不能代替逐题内容审阅。
+
+## 项目文件
+
+- [SKILL.md](SKILL.md)：调用时使用的工作流程与分析要求。
+- [转写说明](references/transcription.md)：环境、模型和音频处理参数。
+- [分析数据规范](references/analysis-schema.md)：逐题分析 JSON 与原文关联规则。
+- [固定工作流](references/fast-workflow.md)：准备、渲染、浏览器验收与计时命令。
+- [scripts/](scripts/)：环境安装、转写、分析准备、渲染和浏览器检查脚本。
+- [assets/review.html](assets/review.html)：报告页面模板。
+
+分发或移动 skill 时保留完整目录。Python 环境和模型权重不包含在仓库中。
