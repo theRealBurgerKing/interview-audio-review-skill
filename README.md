@@ -10,7 +10,7 @@
 
 - **面试复盘报告.html**：整体评价、逐题分析，以及可交互定位的完整原文。
 - **转写稿.txt**：带音频片段时间的原始转写，单独保存，便于复用。
-- **原始录音**：保留原文件名与扩展名的副本，方便回听。
+- **原始录音**：副本统一命名为“原始录音”，保留原扩展名（如 `原始录音.m4a`），方便回听。源录音保持不变。
 
 默认保存位置：
 
@@ -40,11 +40,11 @@ bash scripts/setup.sh
 
 默认使用 Qwen3-ASR 0.6B MLX 4-bit。安装脚本会创建独立 Python 环境 `~/.cache/interview-audio-review/venv`；音视频通过 PyAV 解码，无需另装 ffmpeg 命令。
 
-若需指定 Python、环境位置或模型，见[转写说明](references/transcription.md)。浏览器自动验收另需 Node.js、Playwright 和可用浏览器，配置见[固定工作流](references/fast-workflow.md)。
+若需指定 Python、环境位置或模型，见[转写说明](references/transcription.md)。浏览器自动验收另需 Node.js、Playwright 和可用浏览器，配置见[SKILL.md 的浏览器依赖说明](SKILL.md#浏览器依赖)。
 
 ## 在 Codex 中使用
 
-提供录音路径，调用 skill，并说明面试名称：
+提供录音路径并调用 skill，可选指定面试名称；未指定时，默认使用源录音文件名（去掉扩展名）：
 
 ```text
 使用 $interview-audio-review 复盘 ~/Downloads/面试录音.m4a。
@@ -103,10 +103,9 @@ HTML 自包含，生成后可直接用浏览器打开并离线阅读，交互功
 
 ## 项目文件
 
-- [SKILL.md](SKILL.md)：调用时使用的工作流程与分析要求。
+- [SKILL.md](SKILL.md)：工作流程、分析要求、执行命令、浏览器依赖与计时说明。
 - [转写说明](references/transcription.md)：环境、模型和音频处理参数。
 - [分析数据规范](references/analysis-schema.md)：逐题分析 JSON 与原文关联规则。
-- [固定工作流](references/fast-workflow.md)：准备、渲染、浏览器验收与计时命令。
 - [scripts/](scripts/)：环境安装、转写、分析准备、渲染和浏览器检查脚本。
 - [assets/review.html](assets/review.html)：报告页面模板。
 

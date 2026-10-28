@@ -1,28 +1,27 @@
 # 分析数据与原文关联
 
-分析 JSON 是工作文件，不是最终交付物。使用 UTF-8，字段如下：
+`分析.json` 是 UTF-8 工作文件，供渲染器读取，不作为交付物。字段示例：
 
 ```json
 {
   "title": "面试名称",
   "date": "YYYY-MM-DD",
-  "audio": "录音文件名.m4a",
+  "audio": "原始录音.m4a",
   "summary": ["整体评价，引用题号。"],
-  "scope_note": "本次略去的内容；如无特殊说明可省略。",
   "questions": [
     {
       "id": "q1",
       "title": "问题主题",
       "type": "项目经历",
       "brief": false,
-      "question": "主问题与按顺序发生的追问，标明整理转述。",
+      "question": "主问题、约束与追问的整理转述。",
       "answer": ["实际回答第一点", "实际回答第二点"],
-      "evaluation": "判断、证据、影响与边界。",
-      "steps": [{"title": "动作标题", "body": "简洁说明。"}],
-      "speech": "覆盖主问题和追问的可口述答案。",
-      "uncertainty": ["可选：术语、说话人或题目边界待核说明。"],
-      "evidence": [{"time": "00:01:23", "quote": "转写原文中的连续原句", "note": "与评价的关系。"}],
-      "sources": [{"label": "官方资料标题", "url": "https://官方资料页面"}],
+      "evaluation": "判断、证据与影响。",
+      "steps": [{"title": "动作标题", "body": "简短说明。"}],
+      "speech": "可连贯口述的推荐回答。",
+      "uncertainty": ["术语或说话人待核说明。"],
+      "evidence": [{"time": "00:01:12", "quote": "原文中的连续引文", "note": "与评价的关系。"}],
+      "sources": [{"label": "来源名称", "url": "https://example.com/source"}],
       "ranges": [
         {"start": "00:01:00", "end": "00:01:12", "role": "interviewer"},
         {"start": "00:01:12", "end": "00:02:00", "role": "candidate"}
@@ -32,12 +31,15 @@
 }
 ```
 
-- `id` 必须依次为 `q1`、`q2`……；题目按首次关联时间排序。`type` 是简短主题类别，不是得分；不设置未经校准的总分。
-- `summary` 为 2–3 句话，每项一句。`scope_note` 可注明未覆盖范围，不能借此省略默认纳入的问题。
-- 所有题都有 `question`、非空 `answer` 列表、`evaluation`、非空 `steps` 和 `speech`。`brief: true` 用于简单确认题，只需最短有效答法。原回答很好也提供精炼表达。
-- `uncertainty`、`evidence`、`sources` 可省略。重要评价应有证据；不要从不清楚的转写造引文。`sources` 只允许核实后的 http(s) 直接页面链接。
-- 范围为半开区间 `[start,end)`，按原文每段的开始时间归属。端点优先使用实际转写段的开始时间，避免将同一段同时分给两人。`end` 可用下一题开始时间；最后一段需要结束点晚于该段开始时间。
-- `role` 允许 `interviewer`（提问）、`candidate`（回答）、`context`（面试官说明/交流背景）、`uncertain`（说话人待核）。若角色无法准确分开，应使用 `uncertain` 并在本题说明。
-- 一题的多个范围可不连续，用于穿插追问；不同题不能共享原文段。未关联的段原样保留为“未纳入分析”，不是遗漏或自动判错。
-- 证据的 `time` 必须落在本题关联段上，`quote` 必须是本题原文去除空白后的连续子串；可跨相邻转写行，不得跨说话人拼接出新的含义。脚本会验证关联及引文。
-- 不把修正后的专有名词悄悄写回原文。可在分析中注明“原转写为……，结合上下文整理为……；仍待核”。
+## 字段
+
+- 必填：报告的 `title`、`date`、`audio`、`summary`、`questions`；每题的 `id`、`title`、`question`、`answer`、`evaluation`、`steps`、`speech`、`ranges`。列表不能为空，`steps` 的每项需有 `title`、`body`。
+- `audio` 填写交付目录中的录音副本名称，如 `原始录音.m4a`。
+- `id` 依次为 `q1`、`q2`……，题目按首次关联时间排序。`type` 是可选主题类别；`brief: true` 标记简单确认题。
+- `uncertainty`、`evidence`、`sources` 可省略；关键评价保留证据用于校验，HTML 不另列证据区块。来源 URL 只允许 http(s)。
+
+## 原文关联
+
+- `ranges` 使用半开区间 `[start,end)`，按原文片段的开始时间归属；端点优先用实际片段边界。每题可有不连续范围，不同范围不能重复占用同一片段。
+- `role` 为 `interviewer`、`candidate`、`context` 或 `uncertain`。混合发言或身份不明用 `uncertain`，不能整块强归一人。未关联片段仍保留为“未纳入分析”。
+- `evidence.time` 必须落在本题关联片段上，`quote` 为对应发言去除空白后的连续引文；可跨同一角色的相邻片段，不能跨角色拼接。引文覆盖的片段须包含该时间，渲染器会检查。

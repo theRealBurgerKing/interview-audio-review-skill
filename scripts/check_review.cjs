@@ -17,7 +17,7 @@ for(const modulePath of [options['playwright-module'],process.env.PLAYWRIGHT_MOD
  path.join(os.homedir(),'.cache/interview-audio-review/browser/node_modules/playwright')].filter(Boolean)){
  try{playwright=require(modulePath);break;}catch(e){if(e.code!=='MODULE_NOT_FOUND')throw e;}
 }
-if(!playwright)throw new Error('Playwright is unavailable. Supply --playwright-module or install it as documented in references/fast-workflow.md.');
+if(!playwright)throw new Error('Playwright is unavailable. Supply --playwright-module or install it as documented in SKILL.md (browser dependencies).');
 (async()=>{
  const started=performance.now(),artifacts=path.resolve(options.artifacts);fs.mkdirSync(artifacts,{recursive:true});
  const channel=options.channel||'chrome';
