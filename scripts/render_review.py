@@ -123,22 +123,73 @@ def prepare(raw, data):
     return lines, data
 
 
-def render(raw, data):
-    lines, data = prepare(raw, data)
-    questions = {q['id']: q for q in data['questions']}
-    # Preserve every source fragment, but group continuous turns for reading.
+def transcript_groups(segments, data):
+    """Apply semantic turn starts without changing source text or block times."""
+    turns = data.get('transcript_turns')
+    if turns is not None:
+        if not isinstance(turns, list) or not turns:
+            raise ValueError('transcript_turns must be a nonempty list')
+        indices = {seg['id']: i for i, seg in enumerate(segments)}
+        question_ids = {q['id'] for q in data['questions']}
+        starts = []
+        for turn in turns:
+            if turn.get('segment_id') not in indices:
+                raise ValueError('Turn start references an unknown source segment')
+            if turn.get('role') not in ROLES or not isinstance(turn.get('mixed', False), bool):
+                raise ValueError('Invalid transcript turn role/mixed flag')
+            if turn.get('question_id') is not None and turn['question_id'] not in question_ids:
+                raise ValueError('Transcript turn references an unknown question')
+            index = indices[turn['segment_id']]
+            text = segments[index]['text']
+            marker = turn.get('starts_with')
+            offset = 0
+            if marker is not None:
+                if not isinstance(marker, str) or not marker or text.count(marker) != 1:
+                    raise ValueError('Turn starts_with must match exactly once in its source segment')
+                offset = text.index(marker)
+            point = (index, offset)
+            if starts and point <= starts[-1][0]:
+                raise ValueError('Transcript turn starts must be strictly chronological')
+            starts.append((point, turn))
+        if starts[0][0] != (0, 0):
+            raise ValueError('Transcript turns must cover the beginning of the original text')
+        groups, part_counts = [], {}
+        for n, ((start_index, start_offset), turn) in enumerate(starts):
+            end_index, end_offset = starts[n + 1][0] if n + 1 < len(starts) else (len(segments), 0)
+            group = []
+            for i in range(start_index, min(end_index + 1, len(segments))):
+                if i == end_index and end_offset == 0:
+                    break
+                seg = segments[i]
+                left = start_offset if i == start_index else 0
+                right = end_offset if i == end_index else len(seg['text'])
+                if seg['q'] != turn.get('question_id'):
+                    raise ValueError(f'{seg["id"]}: transcript turn crosses a question association')
+                part_counts[seg['id']] = part_counts.get(seg['id'], 0) + 1
+                part = part_counts[seg['id']]
+                group.append({**seg, 'source_id': seg['id'],
+                              'id': seg['id'] if part == 1 else f'{seg["id"]}-part{part}',
+                              'text': seg['text'][left:right], 'role': turn['role'],
+                              'mixed': turn.get('mixed', False)})
+            if not group:
+                raise ValueError('Empty transcript turn')
+            groups.append(group)
+        return groups
+    # Older analyses still merge continuous same-question/same-role speech.
     groups = []
-    for item in (line for line in lines if 'seconds' in line):
+    for item in segments:
         prior = groups[-1][-1] if groups else None
-        length = sum(len(s['text']) for s in groups[-1]) if groups else 0
-        boundary = (prior is None or item['q'] != prior['q'] or item['role'] != prior['role']
-                    or item['seconds'] - seconds(prior['end']) >= 3
-                    or length >= 260
-                    or (length >= 150 and (re.search(r'[。！？!?；;]$', prior['text'])
-                                          or item['text'].startswith(('然后', '但是', '所以', '另外', '还有', '比如')))))
+        boundary = prior is None or item['q'] != prior['q'] or item['role'] != prior['role']
         if boundary:
             groups.append([])
         groups[-1].append(item)
+    return groups
+
+
+def render(raw, data):
+    lines, data = prepare(raw, data)
+    questions = {q['id']: q for q in data['questions']}
+    groups = transcript_groups([line for line in lines if 'seconds' in line], data)
     data['paragraph_count'] = len(groups)
     rows = []
     for group in groups:
@@ -146,8 +197,9 @@ def render(raw, data):
         qid = item['q'] or ''
         if qid:
             q = questions[qid]
-            attrs = f'data-q="{qid}" style="--h:{q["hue"]}" tabindex="0" role="button" aria-label="查看第 {q["number"]} 题分析，{item["start"]}"'
-            label = f'<span class="turn-label">{q["number"]:02d} · {ROLES[item["role"]]}</span>'
+            tone = 'dark' if item['role'] == 'interviewer' else 'light'
+            attrs = f'data-q="{qid}" data-role="{item["role"]}" data-tone="{tone}" tabindex="0" role="button" aria-label="查看第 {q["number"]} 题分析，{item["start"]}"'
+            label = f'<span class="turn-label">Q{q["number"]}{ROLES[item["role"]]}</span>'
         else:
             attrs = 'data-q=""'
             label = '<span class="turn-label unassigned">未纳入分析</span>'
@@ -157,7 +209,8 @@ def render(raw, data):
             # Only add a space where two Latin/number tokens meet.
             if re.search(r'[A-Za-z0-9]$', previous_text) and re.match(r'[A-Za-z0-9]', seg['text']):
                 fragments.append(' ')
-            fragments.append(f'<span id="{seg["id"]}" class="source-fragment"><span class="fragment-time">[{seg["start"]} → {seg["end"]}] </span><span class="fragment-text">{html.escape(seg["text"])}</span></span>')
+            source_id = seg.get('source_id', seg['id'])
+            fragments.append(f'<span id="{seg["id"]}" data-source-id="{source_id}" class="source-fragment"><span class="fragment-time">[{seg["start"]} → {seg["end"]}] </span><span class="fragment-text">{html.escape(seg["text"])}</span></span>')
             previous_text = seg['text']
         body = ''.join(fragments)
         rows.append(f'<div id="p-{item["id"]}" class="segment {"linked" if qid else ""}" {attrs}>{label}<p class="paragraph-body">{body}</p></div>')

@@ -34,12 +34,28 @@ if(!playwright)throw new Error('Playwright is unavailable. Supply --playwright-m
    return match?[{id:'l'+(i+1),text:match[1]}]:[];
   });
   assert.equal(JSON.parse(await page.locator('#raw-data').textContent()),raw);
-  assert.deepEqual(await page.locator('.fragment-text').allTextContents(),source.map(s=>s.text));
+  const rendered=await page.locator('.source-fragment').evaluateAll(nodes=>nodes.map(node=>({
+   id:node.dataset.sourceId||node.id,text:node.querySelector('.fragment-text').textContent
+  })));
+  const reconstructed=[];
+  for(const part of rendered){
+   const prior=reconstructed[reconstructed.length-1];
+   if(prior?.id===part.id)prior.text+=part.text;
+   else reconstructed.push({...part});
+  }
+  assert.deepEqual(reconstructed,source);
+  assert.equal(new Set(await page.locator('[id]').evaluateAll(nodes=>nodes.map(n=>n.id))).size,await page.locator('[id]').count());
+  assert.equal(await page.locator('.transcript .segment').count(),data.paragraph_count);
   assert.equal(await page.locator('.fragment-time').first().evaluate(n=>getComputedStyle(n).display),'none');
   const questions=data.questions,indices=options.full?questions.map((_,i)=>i):[...new Set([0,Math.floor(questions.length/2),questions.length-1])];
   for(const i of indices){
    const q=questions[i];await page.locator('.contents-item[data-view="'+q.id+'"]').click();
+   assert.equal(await page.locator('.contents-item[data-view="'+q.id+'"]').textContent(),`Q${q.number} ${q.title}`);
+   const labels=await page.locator('.segment[data-q="'+q.id+'"] .turn-label').allTextContents();
+   assert(labels.every(label=>new RegExp(`^Q${q.number}(提问|回答|说明|说话人待核)$`).test(label)));
    assert.equal(await page.locator('.contents-item[aria-current="page"]').getAttribute('data-view'),q.id);
+   assert(await page.locator('.segment[data-q="'+q.id+'"]').evaluateAll(nodes=>nodes.every(node=>node.classList.contains('selected'))));
+   assert.equal(await page.locator('.segment.selected:not([data-q="'+q.id+'"])').count(),0);
    assert.equal(await page.locator('.analysis h2').textContent(),q.title);
    for(const id of q.segment_ids)assert(await page.locator('#'+id).evaluate(n=>n.closest('.segment').classList.contains('selected')));
    assert.equal(await page.locator('#analysis-panel details,#analysis-panel summary,.question-footer,.evidence-list').count(),0);
@@ -67,6 +83,16 @@ if(!playwright)throw new Error('Playwright is unavailable. Supply --playwright-m
   assert.equal(await page.locator('#question-select,#previous,#next,#counter,.navigation').count(),0);
   const layout=await page.evaluate(()=>({sidebar:document.querySelector('.sidebar').getBoundingClientRect().right,content:document.querySelector('.workspace').getBoundingClientRect().left}));
   assert(layout.sidebar<=layout.content);
+  const grayStyles=await page.locator('.segment.linked').evaluateAll(nodes=>nodes.map(node=>({
+   role:node.dataset.role,tone:node.dataset.tone,selected:node.classList.contains('selected'),
+   color:getComputedStyle(node).backgroundColor,outline:getComputedStyle(node).outlineWidth,
+   outlineStyle:getComputedStyle(node).outlineStyle,shadow:getComputedStyle(node).boxShadow
+  })));
+  assert(grayStyles.every(item=>item.tone===(item.role==='interviewer'?'dark':'light')));
+  assert(grayStyles.every(item=>item.color===(item.selected
+   ?(item.tone==='dark'?'rgb(208, 208, 208)':'rgb(231, 231, 231)')
+   :(item.tone==='dark'?'rgb(229, 229, 229)':'rgb(244, 244, 244)'))));
+  assert(grayStyles.filter(item=>item.selected).every(item=>parseFloat(item.outline)>=2&&item.outlineStyle==='solid'&&item.shadow!=='none'));
   await page.screenshot({path:path.join(artifacts,'desktop.png')});
   await page.setViewportSize({width:390,height:844});
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
