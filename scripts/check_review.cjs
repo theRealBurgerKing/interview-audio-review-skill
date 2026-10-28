@@ -29,6 +29,10 @@ if(!playwright)throw new Error('Playwright is unavailable. Supply --playwright-m
   await page.getByRole('heading',{name:'整体评价',exact:true}).waitFor();
   const data=JSON.parse(await page.locator('#review-data').textContent());
   const raw=fs.readFileSync(options.transcript,'utf8');
+  const duration=data.duration_seconds?`约 ${Math.max(1,Math.round(data.duration_seconds/60))} 分钟`:'未提供';
+  assert.equal(await page.locator('#meta').textContent(),`录音时间：${data.recorded_at_display||'未提供'} · 时长：${duration}`);
+  assert.equal(data.storage_path,path.dirname(path.resolve(options.html)));
+  assert.equal(await page.locator('#storage-location').textContent(),`文件存储位置：${data.storage_path}`);
   const source=raw.split(/\r?\n/).flatMap((line,i)=>{
    const match=line.match(/^\[\d{2}:\d{2}:\d{2} -> \d{2}:\d{2}:\d{2}\] (.*)$/);
    return match?[{id:'l'+(i+1),text:match[1]}]:[];
@@ -69,11 +73,75 @@ if(!playwright)throw new Error('Playwright is unavailable. Supply --playwright-m
   await page.locator('.segment[data-q="'+last.id+'"]').first().focus();
   await page.locator('.segment[data-q="'+last.id+'"]').first().press('Enter');
   assert.equal(await page.locator('.contents-item[aria-current="page"]').getAttribute('data-view'),last.id);
-  await page.locator('#timestamp-toggle').click();
-  assert.equal(await page.locator('.fragment-time').first().evaluate(n=>getComputedStyle(n).display),'inline');
-  await page.locator('#timestamp-toggle').click();
-  const searchText=source.find(s=>s.text.trim().length>=4)?.text.trim().slice(0,4);
-  if(searchText){await page.locator('#search').fill(searchText);assert(await page.locator('.match').count()>0);await page.locator('#search').fill('');}
+  assert.equal(await page.locator('#timestamp-toggle').count(),0);
+  const originalParts=await page.locator('.fragment-text').allTextContents();
+  const paragraphTexts=await page.locator('.paragraph-body').evaluateAll(nodes=>nodes.map(node=>Array.from(node.childNodes).map(child=>
+   child.nodeType===Node.TEXT_NODE?child.textContent:(child.querySelector('.fragment-text')?.textContent||'')
+  ).join('')));
+  async function verifySearch(query){
+   await page.locator('#search').fill(query);
+   assert.equal(await page.locator('#search-clear').isVisible(),query.length>0);
+   const term=query.trim().toLowerCase();let expected=0;
+   for(const original of paragraphTexts){
+    const text=original.toLowerCase();let offset=0;
+    while(term&&offset<text.length){const index=text.indexOf(term,offset);if(index<0)break;expected++;offset=index+term.length;}
+   }
+   const matches=await page.locator('mark.search-hit').evaluateAll(nodes=>[...new Set(nodes.map(node=>node.dataset.matchIndex))]);
+   assert.equal(matches.length,expected);
+   assert.deepEqual(await page.locator('.fragment-text').allTextContents(),originalParts);
+   if(expected){
+    assert.equal(await page.locator('#search-count').textContent(),`1 / ${expected}`);
+    assert(await page.locator('mark.current-hit').count()>0);
+    assert.equal(await page.locator('mark.current-hit').first().evaluate(node=>getComputedStyle(node).backgroundColor),'rgb(255, 213, 79)');
+    if(expected>1){
+     await page.locator('#search-next').click();assert.equal(await page.locator('#search-count').textContent(),`2 / ${expected}`);
+     await page.locator('#search-prev').click();assert.equal(await page.locator('#search-count').textContent(),`1 / ${expected}`);
+    }
+   }else{
+    assert.equal(await page.locator('#search-count').textContent(),query.trim()?'0 处':'');
+    assert(await page.locator('#search-prev').isDisabled());assert(await page.locator('#search-next').isDisabled());
+   }
+  }
+  const allText=paragraphTexts.join('\n'),searchText=/agent/i.test(allText)?'Agent':source.find(s=>s.text.trim().length>=4)?.text.trim().slice(0,4);
+  if(searchText){
+   await verifySearch(searchText);
+   await page.locator('#title').click();await page.mouse.move(0,0);
+   assert(await page.locator('#search-clear').isVisible());
+   await page.screenshot({path:path.join(artifacts,'search.png')});
+   if(/[a-z]/i.test(searchText))await verifySearch(searchText.toUpperCase());
+  }
+  const crossFragment=await page.locator('.paragraph-body').evaluateAll(nodes=>{
+   for(const node of nodes){
+    const children=Array.from(node.childNodes);
+    for(let i=0;i<children.length;i++){
+     const first=children[i].nodeType===Node.ELEMENT_NODE?children[i].querySelector('.fragment-text'):null;
+     if(!first||first.textContent.length<3)continue;
+     let gap='';
+     for(let j=i+1;j<children.length;j++){
+      if(children[j].nodeType===Node.TEXT_NODE){gap+=children[j].textContent;continue}
+      const next=children[j].querySelector('.fragment-text');
+      if(next&&next.textContent.length>=3)return first.textContent.slice(-3)+gap+next.textContent.slice(0,3);
+      break;
+     }
+    }
+   }
+   return null;
+  });
+  if(crossFragment){
+   await verifySearch(crossFragment);
+   const spans=await page.locator('mark.search-hit').evaluateAll(nodes=>{const counts={};nodes.forEach(node=>{counts[node.dataset.matchIndex]=(counts[node.dataset.matchIndex]||0)+1});return Object.values(counts)});
+   assert(spans.some(count=>count>1));
+  }
+  for(const symbol of ['+','[','<','?','.'])if(allText.includes(symbol))await verifySearch(symbol);
+  let missing='__review_no_search_match__';while(allText.includes(missing))missing+='_';
+  await verifySearch(missing);await page.locator('#search-clear').click();
+  assert.equal(await page.locator('#search').inputValue(),'');
+  assert.equal(await page.locator('#search-clear').isVisible(),false);
+  assert.equal(await page.locator('#search-count').textContent(),'');
+  assert.equal(await page.locator('mark.search-hit').count(),0);
+  assert.deepEqual(await page.locator('.fragment-text').allTextContents(),originalParts);
+  await verifySearch('   ');await page.locator('#search-clear').click();await verifySearch('');
+  assert.equal(await page.locator('mark.search-hit').count(),0);
   await page.locator('.contents-item[data-view="overview"]').click();
   await page.getByRole('heading',{name:'整体评价',exact:true}).waitFor();
   await page.locator('.contents-item[data-view="'+last.id+'"]').focus();
@@ -83,16 +151,16 @@ if(!playwright)throw new Error('Playwright is unavailable. Supply --playwright-m
   assert.equal(await page.locator('#question-select,#previous,#next,#counter,.navigation').count(),0);
   const layout=await page.evaluate(()=>({sidebar:document.querySelector('.sidebar').getBoundingClientRect().right,content:document.querySelector('.workspace').getBoundingClientRect().left}));
   assert(layout.sidebar<=layout.content);
-  const grayStyles=await page.locator('.segment.linked').evaluateAll(nodes=>nodes.map(node=>({
+  const turnStyles=await page.locator('.segment.linked').evaluateAll(nodes=>nodes.map(node=>({
    role:node.dataset.role,tone:node.dataset.tone,selected:node.classList.contains('selected'),
    color:getComputedStyle(node).backgroundColor,outline:getComputedStyle(node).outlineWidth,
    outlineStyle:getComputedStyle(node).outlineStyle,shadow:getComputedStyle(node).boxShadow
   })));
-  assert(grayStyles.every(item=>item.tone===(item.role==='interviewer'?'dark':'light')));
-  assert(grayStyles.every(item=>item.color===(item.selected
-   ?(item.tone==='dark'?'rgb(208, 208, 208)':'rgb(231, 231, 231)')
-   :(item.tone==='dark'?'rgb(229, 229, 229)':'rgb(244, 244, 244)'))));
-  assert(grayStyles.filter(item=>item.selected).every(item=>parseFloat(item.outline)>=2&&item.outlineStyle==='solid'&&item.shadow!=='none'));
+  assert(turnStyles.every(item=>item.tone===(item.role==='interviewer'?'dark':'light')));
+  assert(turnStyles.every(item=>item.color===(item.selected
+   ?(item.tone==='dark'?'rgb(213, 227, 246)':'rgb(229, 238, 251)')
+   :(item.tone==='dark'?'rgb(228, 237, 249)':'rgb(238, 244, 252)'))));
+  assert(turnStyles.filter(item=>item.selected).every(item=>parseFloat(item.outline)>=2&&item.outlineStyle==='solid'&&item.shadow!=='none'));
   await page.screenshot({path:path.join(artifacts,'desktop.png')});
   await page.setViewportSize({width:390,height:844});
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);

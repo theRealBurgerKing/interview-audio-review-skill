@@ -36,6 +36,7 @@
 
 - 必填：报告的 `title`、`date`、`audio`、`summary`、`questions`；每题的 `id`、`title`、`question`、`answer`、`evaluation`、`steps`、`speech`、`ranges`。列表不能为空，`steps` 的每项需有 `title`、`body`。
 - `audio` 填写交付目录中的录音副本名称，如 `原始录音.m4a`。
+- `recorded_at`（含时区的 ISO 日期时间）与 `duration_seconds`（正数秒数）可选，用于用户确认的录制时间与时长；缺省时渲染器尝试读取媒体元数据，不以文件系统创建时间或报告日期替代。标题将录制时间转换为本地时区并显示到分钟，时长四舍五入为约多少分钟；未知显示“未提供”。`storage_path` 由渲染器按 HTML 输出目录自动写入绝对路径。
 - `id` 依次为 `q1`、`q2`……，题目按首次关联时间排序。`type` 是可选主题类别；`brief: true` 标记简单确认题。
 - `uncertainty`、`evidence`、`sources` 可省略；关键评价保留证据用于校验，HTML 不另列证据区块。来源 URL 只允许 http(s)。
 

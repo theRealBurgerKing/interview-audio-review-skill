@@ -226,6 +226,40 @@ def render(raw, data):
     return re.sub(r'@@(?:PAGE_TITLE|RAW_ROWS|DATA|RAW_DATA)@@', lambda m: replacements[m.group()], template)
 
 
+def recording_metadata(data, audio_path):
+    """Read container metadata only; never infer recording time from file copies."""
+    recorded_at = data.get('recorded_at')
+    duration = data.get('duration_seconds')
+    if audio_path.is_file() and (not recorded_at or duration is None):
+        try:
+            import av
+        except ImportError:
+            av = None
+        if av is not None:
+            try:
+                with av.open(str(audio_path)) as container:
+                    recorded_at = recorded_at or container.metadata.get('creation_time')
+                    if duration is None and container.duration is not None:
+                        duration = container.duration / av.time_base
+            except (OSError, ValueError):
+                pass
+    if recorded_at:
+        try:
+            timestamp = datetime.fromisoformat(recorded_at.replace('Z', '+00:00'))
+            if timestamp.utcoffset() is None:
+                raise ValueError('Timezone required')
+        except (ValueError, AttributeError) as error:
+            raise ValueError('recorded_at must be an ISO datetime with timezone') from error
+        local = timestamp.astimezone()
+        offset = local.strftime('%z')
+        data['recorded_at'] = timestamp.isoformat()
+        data['recorded_at_display'] = local.strftime('%Y-%m-%d %H:%M') + f' (UTC{offset[:3]}:{offset[3:]})'
+    if duration is not None:
+        if isinstance(duration, bool) or not isinstance(duration, (int, float)) or not 0 < duration < float('inf'):
+            raise ValueError('duration_seconds must be a positive finite number')
+        data['duration_seconds'] = duration
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--transcript', type=Path, required=True)
@@ -242,6 +276,11 @@ def main():
         preparation = json.loads(args.preparation.read_text(encoding='utf-8'))
         if hashlib.sha256(raw.encode('utf-8')).hexdigest() != preparation['transcript_sha256']:
             parser.error('Transcript changed since preparation; review the new input before rendering')
+    data['storage_path'] = str(args.output.resolve().parent)
+    audio_path = Path(data.get('audio', ''))
+    if not audio_path.is_absolute():
+        audio_path = args.output.resolve().parent / audio_path
+    recording_metadata(data, audio_path)
     result = render(raw, data)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(result, encoding='utf-8')
