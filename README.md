@@ -6,9 +6,7 @@
 
 ## 看看报告长什么样
 
-![面试复盘报告：左侧题目目录，中间逐题评价与推荐回答，右侧关联原文](assets/report-preview.png)
-
-*截图使用虚构的面试问答，仅展示报告效果。*
+<img width="2047" height="1236" alt="008133b3b1d5b095e1a23b160f815983" src="https://github.com/user-attachments/assets/7b9fe3ee-0692-461a-8ddc-d5ee9a9471e1" />
 
 ## 它能帮你做什么
 
