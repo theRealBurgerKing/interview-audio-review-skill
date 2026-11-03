@@ -68,3 +68,7 @@ bash scripts/setup.sh
 建议先补齐提示中缺少的真实信息，再按自己的经历练习表达。自动转写和评价可能存在误差，重要内容请结合录音核对。
 
 环境配置和转写参数见[转写说明](references/transcription.md)；完整工作流程与配置见 [SKILL.md](SKILL.md)。
+
+## 许可证
+
+本项目采用 [MIT 许可证](LICENSE)。
