@@ -1,11 +1,29 @@
 ---
 name: interview-audio-review
-description: 将真实面试录音生成 HTML 逐题复盘报告。当用户提及分析面试录音、面试复盘的时候调用。
+description: >-
+  Analyze a candidate's recorded job interview or timestamped transcript to generate
+  an interactive HTML debrief with question-by-question feedback, answer gaps,
+  and suggested responses linked to the original transcript. Use for post-interview
+  review, interview recording analysis, and improving answers after a real interview.
+  用于求职者的面试录音分析、面试复盘、逐题评价、回答查漏补缺与表达改进。
+license: MIT
 ---
 
 # 面试音频复盘
 
 使用本技能内置的转写、准备、渲染与验收脚本，交付“原始录音”（保留源文件扩展名）、`转写稿.txt` 和 `面试复盘报告.html`。用户指定的范围、格式和详略优先。
+
+## 适用场景与运行条件
+
+适用于求职者复盘已经发生的面试，输入可以是录音、音视频或兼容的带时间锚点转写稿。用户仅要求模拟面试、准备题库或从招聘方视角评估候选人时，不默认套用本复盘流程。
+
+典型请求：
+
+- “这是我刚结束的面试录音，帮我看看哪里没答好。”
+- “根据这份带时间信息的面试转写，逐题分析我的回答，给出更好的表达。”
+- “Review my job interview recording and suggest better answers.”
+
+本地音频转写需要 Apple Silicon Mac 和 Python 3.10+，首次使用按[转写说明](references/transcription.md)配置依赖。已有兼容的带时间锚点转写稿时可跳过转写；保留已有原文，不虚构缺失的录音或时间信息。报告分析由当前 Codex 环境完成；浏览器验收需要 Node.js、Playwright 和浏览器，见下文“浏览器依赖”。
 
 ## 工作流程
 
